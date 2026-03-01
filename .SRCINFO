@@ -1,0 +1,12 @@
+pkgbase = omarchy-delta-theme-sync
+	pkgdesc = Automatic delta theme synchronization for Omarchy
+	pkgver = 1.0.0
+	pkgrel = 1
+	arch = any
+	license = MIT
+	depends = bash
+	depends = git-delta
+	source = omarchy-delta-theme-sync-1.0.0.tar.gz
+	md5sums = SKIP
+
+pkgname = omarchy-delta-theme-sync

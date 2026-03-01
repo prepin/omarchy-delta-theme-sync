@@ -1,0 +1,7 @@
+
+# >>> omarchy-delta-theme-sync hook >>>
+# Apply delta theme on Omarchy theme change
+if [[ -f ~/.local/bin/omarchy-delta-theme-apply ]]; then
+  ~/.local/bin/omarchy-delta-theme-apply "$1"
+fi
+# <<< omarchy-delta-theme-sync hook <<<
