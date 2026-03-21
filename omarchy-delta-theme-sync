@@ -1,0 +1,230 @@
+#!/bin/bash
+
+set -euo pipefail
+
+VERSION="1.0.0"
+
+# Paths
+PKG_DIR="/usr/share/omarchy-delta-theme-sync"
+USER_BIN_DIR="$HOME/.local/bin"
+USER_CONFIG_DIR="$HOME/.config/omarchy"
+OMARCHY_HOOKS_DIR="$USER_CONFIG_DIR/hooks"
+HOOK_FILE="$OMARCHY_HOOKS_DIR/theme-set"
+DELTA_THEMES_DIR="$HOME/.config/delta/themes"
+THEME_APPLY_SCRIPT="$USER_BIN_DIR/omarchy-delta-theme-apply"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $*"
+}
+
+log_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $*"
+}
+
+log_warn() {
+    echo -e "${YELLOW}[WARN]${NC} $*"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $*" >&2
+}
+
+# Check if PATH contains ~/.local/bin
+check_path() {
+    case ":$PATH:" in
+        *:"$USER_BIN_DIR":*)
+            log_success "PATH is correctly configured"
+            return 0
+            ;;
+    esac
+    log_warn "$USER_BIN_DIR is not in PATH"
+    log_warn "Add it to your shell configuration:"
+    log_warn "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc"
+    return 1
+}
+
+# Setup command
+cmd_setup() {
+    log_info "Setting up omarchy-delta-theme-sync..."
+    
+    # Create necessary directories
+    log_info "Creating directories..."
+    mkdir -p "$USER_BIN_DIR"
+    mkdir -p "$OMARCHY_HOOKS_DIR"
+    mkdir -p "$DELTA_THEMES_DIR"
+    
+    # Copy theme apply script
+    log_info "Installing theme apply script..."
+    if [[ -f "$PKG_DIR/scripts/omarchy-delta-theme-apply" ]]; then
+        cp "$PKG_DIR/scripts/omarchy-delta-theme-apply" "$THEME_APPLY_SCRIPT"
+        chmod +x "$THEME_APPLY_SCRIPT"
+        log_success "Installed $THEME_APPLY_SCRIPT"
+    else
+        log_error "Theme apply script not found at $PKG_DIR/scripts/omarchy-delta-theme-apply"
+        return 1
+    fi
+    
+    # Add hook to theme-set
+    log_info "Adding hook to Omarchy theme-set..."
+    if [[ -f "$PKG_DIR/theme-set-hook" ]]; then
+        if [[ -f "$HOOK_FILE" ]]; then
+            if ! grep -q "omarchy-delta-theme-sync hook" "$HOOK_FILE" 2>/dev/null; then
+                echo "" >> "$HOOK_FILE"
+                cat "$PKG_DIR/theme-set-hook" >> "$HOOK_FILE"
+                log_success "Hook added to $HOOK_FILE"
+            else
+                log_info "Hook already present in $HOOK_FILE"
+            fi
+        else
+            cp "$PKG_DIR/theme-set-hook" "$HOOK_FILE"
+            log_success "Created hook file at $HOOK_FILE"
+        fi
+    else
+        log_error "Hook template not found at $PKG_DIR/theme-set-hook"
+        return 1
+    fi
+    
+    # Apply current theme
+    log_info "Applying current theme..."
+    if [[ -f "$THEME_APPLY_SCRIPT" ]]; then
+        CURRENT_THEME=$(cat "$USER_CONFIG_DIR/current/theme.name" 2>/dev/null || echo "catppuccin")
+        "$THEME_APPLY_SCRIPT" "$CURRENT_THEME"
+        log_success "Applied theme: $CURRENT_THEME"
+    fi
+    
+    # Check PATH
+    check_path
+    
+    echo ""
+    log_success "Setup complete!"
+    echo ""
+    echo "Delta will now automatically sync with Omarchy theme changes."
+    echo ""
+    echo "Manual theme application:"
+    echo "  omarchy-delta-theme-apply <theme>"
+    echo ""
+}
+
+# Uninstall command
+cmd_uninstall() {
+    log_info "Uninstalling omarchy-delta-theme-sync..."
+    
+    # Remove theme apply script
+    if [[ -f "$THEME_APPLY_SCRIPT" ]]; then
+        rm -f "$THEME_APPLY_SCRIPT"
+        log_success "Removed $THEME_APPLY_SCRIPT"
+    else
+        log_info "Theme apply script not found"
+    fi
+    
+    # Remove hook from theme-set
+    if [[ -f "$HOOK_FILE" ]]; then
+        if grep -q "omarchy-delta-theme-sync hook" "$HOOK_FILE"; then
+            temp_file=$(mktemp)
+            # Remove everything between the markers
+            awk '
+                /omarchy-delta-theme-sync hook >>>/ { skip=1; next }
+                /<<< omarchy-delta-theme-sync hook/ { skip=0; next }
+                !skip { print }
+            ' "$HOOK_FILE" > "$temp_file"
+            mv "$temp_file" "$HOOK_FILE"
+            log_success "Removed hook from $HOOK_FILE"
+        else
+            log_info "Hook not found in $HOOK_FILE"
+        fi
+    fi
+    
+    # Note: We don't remove delta themes directory as it might be used elsewhere
+    
+    echo ""
+    log_success "Uninstall complete!"
+    echo ""
+    log_info "Note: Delta themes in $DELTA_THEMES_DIR were not removed."
+    echo "      To remove them manually:"
+    echo "      rm -rf $DELTA_THEMES_DIR"
+    echo ""
+}
+
+# Apply command
+cmd_apply() {
+    log_info "Applying delta theme..."
+    
+    if [[ ! -f "$THEME_APPLY_SCRIPT" ]]; then
+        log_error "Theme apply script not found: $THEME_APPLY_SCRIPT"
+        log_info "Run 'omarchy-delta-theme-sync setup' first"
+        return 1
+    fi
+    
+    "$THEME_APPLY_SCRIPT" "$@"
+}
+
+# Version command
+cmd_version() {
+    echo "omarchy-delta-theme-sync v$VERSION"
+}
+
+# Help command
+cmd_help() {
+    cat << EOF
+omarchy-delta-theme-sync v$VERSION
+
+Automatic delta theme synchronization for Omarchy.
+
+Usage:
+  omarchy-delta-theme-sync <command> [options]
+
+Commands:
+  setup     Set up delta theme synchronization
+  uninstall Remove delta theme synchronization
+  apply     Apply delta theme manually
+  version   Show version information
+  help      Show this help message
+
+Examples:
+  omarchy-delta-theme-sync setup
+  omarchy-delta-theme-sync apply catppuccin
+  omarchy-delta-theme-sync uninstall
+
+For more information, visit:
+https://github.com/prepin/omarchy-delta-theme-sync
+EOF
+}
+
+# Main
+main() {
+    local command="${1:-help}"
+    
+    case "$command" in
+        setup)
+            cmd_setup
+            ;;
+        uninstall)
+            cmd_uninstall
+            ;;
+        apply)
+            shift
+            cmd_apply "$@"
+            ;;
+        version)
+            cmd_version
+            ;;
+        help|--help|-h)
+            cmd_help
+            ;;
+        *)
+            log_error "Unknown command: $command"
+            echo ""
+            cmd_help
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
