@@ -6,6 +6,7 @@ Automatic theme synchronization for delta (git diff pager) with Omarchy themes.
 - Automatic sync when Omarchy theme changes
 - Smart color adjustment for light/dark themes
 - Syntax highlighting support
+- Theme generation from `colors.toml` with `alacritty.toml` fallback
 - Non-destructive (uses gitconfig include)
 
 ## Requirements

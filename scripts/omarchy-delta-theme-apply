@@ -8,6 +8,18 @@ OMARCHY_CURRENT_THEME="$HOME/.config/omarchy/current/theme"
 DELTA_THEMES_DIR="$HOME/.config/delta/themes"
 DELTA_THEME_FILE="$DELTA_THEMES_DIR/omarchy.gitconfig"
 
+log_info() {
+  echo "[INFO] $*"
+}
+
+log_success() {
+  echo "[SUCCESS] $*"
+}
+
+log_error() {
+  echo "[ERROR] $*" >&2
+}
+
 # Color manipulation functions
 hex_to_rgb() {
   local hex="$1"
@@ -86,22 +98,21 @@ get_theme_name() {
   echo "catppuccin"
 }
 
-# Parse colors.toml - check multiple locations
-parse_colors() {
-  local theme_name="$1"
-  local colors_file=""
-  
-  # First check bundled themes directory
-  if [[ -f "$OMARCHY_THEMES_DIR/$theme_name/colors.toml" ]]; then
-    colors_file="$OMARCHY_THEMES_DIR/$theme_name/colors.toml"
-  # Then check current theme directory
-  elif [[ -f "$HOME/.config/omarchy/current/theme/colors.toml" ]]; then
-    colors_file="$HOME/.config/omarchy/current/theme/colors.toml"
-  else
-    echo "Error: Colors file not found for theme: $theme_name" >&2
-    exit 1
-  fi
-  
+validate_colors() {
+  local required=(background foreground color1 color2 color3 color4 color5 accent)
+  local key
+
+  for key in "${required[@]}"; do
+    if [[ -z "${COLORS[$key]:-}" ]]; then
+      log_error "Missing required color '$key'"
+      exit 1
+    fi
+  done
+}
+
+parse_colors_toml() {
+  local colors_file="$1"
+
   declare -gA COLORS
   while IFS='=' read -r key value; do
     key="${key//[\"\' ]/}"
@@ -110,6 +121,81 @@ parse_colors() {
     value="${value%%[\"\']*}"
     COLORS["$key"]="$value"
   done < "$colors_file"
+
+  validate_colors
+}
+
+parse_alacritty_toml() {
+  local alacritty_file="$1"
+  local section=""
+
+  declare -gA COLORS
+  while IFS= read -r line; do
+    if [[ $line =~ ^[[:space:]]*\[(.+)\][[:space:]]*$ ]]; then
+      section="${BASH_REMATCH[1]}"
+      continue
+    fi
+
+    if [[ $line =~ ^[[:space:]]*([a-zA-Z_]+)[[:space:]]*=[[:space:]]*\"(#[0-9A-Fa-f]{6})\"[[:space:]]*$ ]]; then
+      local key="${BASH_REMATCH[1]}"
+      local value="${BASH_REMATCH[2]}"
+      case "$section.$key" in
+        colors.primary.background) COLORS[background]="$value" ;;
+        colors.primary.foreground) COLORS[foreground]="$value" ;;
+        colors.normal.red) COLORS[color1]="$value" ;;
+        colors.normal.green) COLORS[color2]="$value" ;;
+        colors.normal.yellow) COLORS[color3]="$value" ;;
+        colors.normal.blue)
+          COLORS[color4]="$value"
+          COLORS[accent]="$value"
+          ;;
+        colors.normal.magenta) COLORS[color5]="$value" ;;
+      esac
+    fi
+  done < "$alacritty_file"
+
+  if [[ -z "${COLORS[accent]:-}" && -n "${COLORS[color4]:-}" ]]; then
+    COLORS[accent]="${COLORS[color4]}"
+  fi
+
+  validate_colors
+}
+
+# Parse colors with colors.toml first, then alacritty.toml fallback
+parse_colors() {
+  local theme_name="$1"
+
+  local theme_colors="$OMARCHY_THEMES_DIR/$theme_name/colors.toml"
+  local current_colors="$HOME/.config/omarchy/current/theme/colors.toml"
+  local theme_alacritty="$OMARCHY_THEMES_DIR/$theme_name/alacritty.toml"
+  local current_alacritty="$HOME/.config/omarchy/current/theme/alacritty.toml"
+
+  if [[ -f "$theme_colors" ]]; then
+    log_info "Using colors.toml from theme directory"
+    parse_colors_toml "$theme_colors"
+    return
+  fi
+
+  if [[ -f "$current_colors" ]]; then
+    log_info "Using colors.toml from current theme"
+    parse_colors_toml "$current_colors"
+    return
+  fi
+
+  if [[ -f "$theme_alacritty" ]]; then
+    log_info "colors.toml missing; falling back to theme alacritty.toml"
+    parse_alacritty_toml "$theme_alacritty"
+    return
+  fi
+
+  if [[ -f "$current_alacritty" ]]; then
+    log_info "colors.toml missing; falling back to current alacritty.toml"
+    parse_alacritty_toml "$current_alacritty"
+    return
+  fi
+
+  log_error "No colors.toml or alacritty.toml found for theme: $theme_name"
+  exit 1
 }
 
 # Generate delta theme config
@@ -200,7 +286,7 @@ generate_delta_theme() {
     true-color = always
 EOF
   
-  echo "Generated delta theme: $DELTA_THEME_FILE"
+  log_success "Generated delta theme: $DELTA_THEME_FILE"
 }
 
 # Ensure include is in gitconfig
@@ -216,7 +302,7 @@ ensure_gitconfig_include() {
   
   # Check if include already exists
   if grep -qF "$DELTA_THEME_FILE" "$gitconfig" 2>/dev/null; then
-    echo "Include already present in gitconfig"
+    log_info "Include already present in gitconfig"
     return 0
   fi
   
@@ -229,7 +315,7 @@ ensure_gitconfig_include() {
     echo "# <<< omarchy-delta-theme-sync <<<"
   } >> "$gitconfig"
   
-  echo "Added include to gitconfig"
+  log_success "Added include to gitconfig"
 }
 
 # Main
@@ -237,7 +323,7 @@ main() {
   local theme_name
   theme_name=$(get_theme_name "$@")
   
-  echo "Applying Omarchy theme to delta: $theme_name"
+  log_info "Applying Omarchy theme to delta: $theme_name"
   
   mkdir -p "$DELTA_THEMES_DIR"
   
@@ -245,7 +331,7 @@ main() {
   generate_delta_theme
   ensure_gitconfig_include
   
-  echo "✓ Delta theme applied successfully"
+  log_success "Delta theme applied successfully"
 }
 
 main "$@"
